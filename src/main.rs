@@ -4,9 +4,6 @@ use std::fs;
 use std::path::Path;
 use serde::Serialize;
 
-mod detector;
-use detector::{SecretDetector, SecretFinding};
-
 #[derive(Parser)]
 #[command(name = "enveil")]
 #[command(about = "Secret detection and protection tool", long_about = None)]
@@ -47,16 +44,12 @@ struct ScanResult {
     path: String,
     file_type: String,
     risk_level: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    secrets: Vec<SecretFinding>,
 }
 
 #[derive(Serialize)]
 struct ScanReport {
     total_files: usize,
     risky_files: usize,
-    files_with_secrets: usize,
-    total_secrets_found: usize,
     files: Vec<ScanResult>,
 }
 
@@ -113,49 +106,14 @@ fn scan_directory(dir_path: &Path, verbose: bool) -> Result<ScanReport, String> 
         return Err(format!("Path is not a directory: {}", dir_path.display()));
     }
     
-    // First, scan for risky files by extension
     scan_recursive(dir_path, &risky_extensions, &mut results, verbose);
     
-    // Then, scan all text files for secrets using the detector
-    let detector = SecretDetector::new();
-    let secret_results = detector.scan_directory(dir_path, verbose);
-    
-    // Merge secret findings into results
-    let mut files_with_secrets = 0;
-    let mut total_secrets = 0;
-    
-    for (file_path, secrets) in secret_results {
-        if let Some(result) = results.iter_mut().find(|r| r.path == file_path) {
-            result.secrets = secrets;
-            files_with_secrets += 1;
-            total_secrets += secrets.len();
-        } else {
-            // File not in risky list but contains secrets - add it
-            let path = Path::new(&file_path);
-            let extension = path.extension()
-                .and_then(|e| e.to_str())
-                .map(|e| format!(".{}", e))
-                .unwrap_or_default();
-            
-            results.push(ScanResult {
-                path: file_path,
-                file_type: extension,
-                risk_level: "high".to_string(),
-                secrets,
-            });
-            files_with_secrets += 1;
-            total_secrets += results.last().map(|r| r.secrets.len()).unwrap_or(0);
-        }
-    }
-    
     let total_files = results.len();
-    let risky_files = results.iter().filter(|r| r.risk_level == "high" || !r.secrets.is_empty()).count();
+    let risky_files = results.len();
     
     Ok(ScanReport {
         total_files,
         risky_files,
-        files_with_secrets,
-        total_secrets_found: total_secrets,
         files: results,
     })
 }
@@ -213,9 +171,7 @@ fn scan_recursive(dir_path: &Path, extensions: &HashSet<&str>, results: &mut Vec
 
 fn print_text_report(report: ScanReport, verbose: bool) {
     println!("\n📁 Enveil Scan Report\n");
-    println!("Total risky files found: {}", report.risky_files);
-    println!("Files with secrets: {}", report.files_with_secrets);
-    println!("Total secrets found: {}\n", report.total_secrets_found);
+    println!("Total risky files found: {}\n", report.risky_files);
     
     if report.files.is_empty() {
         println!("✅ No risky files detected!");
@@ -244,13 +200,6 @@ fn print_text_report(report: ScanReport, verbose: bool) {
         
         if verbose {
             println!("   Type: {}", file.file_type);
-        }
-        
-        // Display secrets found in this file
-        if !file.secrets.is_empty() {
-            for secret in &file.secrets {
-                println!("   ⚠️  [{}] Line {}: {}", secret.secret_type, secret.line_number, secret.line_content);
-            }
         }
     }
 }
