@@ -147,7 +147,7 @@ impl SecretDetector {
             // Hex Secret (32+ chars)
             (
                 "HEX_SECRET",
-                Regex::new(r"(?i)(?:token|key|secret)\s*[:=]\s*['\"]?([a-fA-F0-9]{32,})['\"]?").unwrap(),
+                Regex::new(r#"(?i)(?:token|key|secret)\s*[:=]\s*['"]?([a-fA-F0-9]{32,})['"]?"#).unwrap(),
             ),
         ];
 
@@ -243,9 +243,14 @@ impl Default for SecretDetector {
 
 /// Mask secrets in a line for safe display
 fn mask_secret_in_line(line: &str) -> String {
-    // Replace potential secrets with masked versions
-    let masked = line
-        .replace(|c: char| c.is_alphanumeric() || c == '-' || c == '_' || c == '+' || c == '/' || c == '=' , "*".chars().take(1).collect::<String>());
+    // Mask all alphanumeric and special characters except spaces
+    let masked: String = line.chars().map(|c| {
+        if c.is_alphanumeric() || c == '-' || c == '_' || c == '+' || c == '/' || c == '=' {
+            '*'
+        } else {
+            c
+        }
+    }).collect();
 
     // Keep first few chars for context
     if masked.len() > 50 {

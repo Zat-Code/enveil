@@ -5,7 +5,10 @@ use std::path::Path;
 use serde::Serialize;
 
 mod detector;
+mod protector;
+
 use detector::{SecretDetector, SecretFinding};
+use protector::{FileProtector, ProtectOption, ProtectResult, SensitiveFiles};
 
 #[derive(Parser)]
 #[command(name = "enveil")]
@@ -34,6 +37,26 @@ enum Commands {
     Protect {
         /// Path to protect
         path: Option<String>,
+        
+        /// Action: move, encrypt, or both (default: move)
+        #[arg(short, long, default_value = "move")]
+        action: String,
+        
+        /// Secure directory path (default: ./enveil_secure)
+        #[arg(short, long)]
+        secure_dir: Option<String>,
+        
+        /// Encryption key (32 bytes, base64 encoded) - auto-generated if not provided
+        #[arg(short, long)]
+        key: Option<String>,
+        
+        /// Preview only, don't actually protect
+        #[arg(short, long)]
+        dry_run: bool,
+        
+        /// Verbose output
+        #[arg(short, long)]
+        verbose: bool,
     },
     /// Install Git hooks
     Install {
@@ -125,10 +148,11 @@ fn scan_directory(dir_path: &Path, verbose: bool) -> Result<ScanReport, String> 
     let mut total_secrets = 0;
     
     for (file_path, secrets) in secret_results {
+        let secret_count = secrets.len();
         if let Some(result) = results.iter_mut().find(|r| r.path == file_path) {
             result.secrets = secrets;
             files_with_secrets += 1;
-            total_secrets += secrets.len();
+            total_secrets += secret_count;
         } else {
             // File not in risky list but contains secrets - add it
             let path = Path::new(&file_path);
@@ -144,7 +168,7 @@ fn scan_directory(dir_path: &Path, verbose: bool) -> Result<ScanReport, String> 
                 secrets,
             });
             files_with_secrets += 1;
-            total_secrets += results.last().map(|r| r.secrets.len()).unwrap_or(0);
+            total_secrets += secret_count;
         }
     }
     
@@ -200,6 +224,7 @@ fn scan_recursive(dir_path: &Path, extensions: &HashSet<&str>, results: &mut Vec
                         path: path.to_string_lossy().to_string(),
                         file_type: if is_env_file { ".env".to_string() } else { extension },
                         risk_level: risk_level.to_string(),
+                        secrets: Vec::new(),
                     });
                     
                     if verbose {
@@ -281,13 +306,139 @@ fn main() {
                 }
             }
         }
-        Commands::Protect { path } => {
-            println!("Enveil protect");
-            println!("Path: {:?}", path);
+        Commands::Protect { path, action, secure_dir, key, dry_run, verbose } => {
+            let protect_path = path.as_deref().unwrap_or(".");
+            let protect_path = Path::new(protect_path);
+            
+            let secure_dir = secure_dir
+                .as_deref()
+                .unwrap_or("./enveil_secure");
+            
+            let action = ProtectOption::from_str(action);
+            
+            // Parse key if provided (base64 encoded, 32 bytes)
+            let encryption_key: Option<[u8; 32]> = if let Some(key_str) = key {
+                use base64::Engine;
+                let decoded = base64::engine::general_purpose::STANDARD
+                    .decode(key_str)
+                    .ok();
+                if let Some(bytes) = decoded {
+                    if bytes.len() == 32 {
+                        let mut key_array = [0u8; 32];
+                        key_array.copy_from_slice(&bytes);
+                        Some(key_array)
+                    } else {
+                        eprintln!("⚠️  Key must be 32 bytes (base64 encoded)");
+                        std::process::exit(1);
+                    }
+                } else {
+                    eprintln!("⚠️  Invalid base64 key");
+                    std::process::exit(1);
+                }
+            } else {
+                None
+            };
+            
+            // Show what will be protected
+            println!("\n🔒 Enveil Protect\n");
+            println!("Path: {}", protect_path.display());
+            println!("Action: {:?}", action);
+            println!("Secure directory: {}", secure_dir);
+            println!();
+            
+            // Scan for sensitive files first
+            if protect_path.is_dir() {
+                let mut sensitive_files = Vec::new();
+                scan_sensitive_files(protect_path, &mut sensitive_files);
+                
+                if sensitive_files.is_empty() {
+                    println!("✅ No sensitive files found to protect!");
+                    return;
+                }
+                
+                println!("Found {} sensitive files:\n", sensitive_files.len());
+                for (i, file) in sensitive_files.iter().enumerate() {
+                    println!("  {}. {}", i + 1, file);
+                }
+                println!();
+            }
+            
+            if *dry_run {
+                println!("🔍 Dry run mode - no files were protected");
+                println!("Use without --dry-run to actually protect files");
+                return;
+            }
+            
+            // Create protector
+            let protector = FileProtector::new(Path::new(secure_dir).to_path_buf());
+            
+            if protect_path.is_file() {
+                // Protect single file
+                let result = protector.protect_file(protect_path, &action, encryption_key.as_ref());
+                print_protect_result(&result, *verbose);
+            } else if protect_path.is_dir() {
+                // Protect directory
+                let results = protector.protect_directory(protect_path, &action, encryption_key.as_ref());
+                
+                let success_count = results.iter().filter(|r| r.success).count();
+                let fail_count = results.len() - success_count;
+                
+                println!("\n📊 Protection Summary:");
+                println!("  ✅ Protected: {}", success_count);
+                println!("  ❌ Failed: {}", fail_count);
+                println!();
+                
+                for result in &results {
+                    print_protect_result(result, *verbose);
+                }
+            } else {
+                eprintln!("❌ Error: Invalid path");
+                std::process::exit(1);
+            }
         }
         Commands::Install { path } => {
             println!("Enveil install");
             println!("Path: {:?}", path);
         }
+    }
+}
+
+/// Scan directory for sensitive files
+fn scan_sensitive_files(dir_path: &Path, files: &mut Vec<String>) {
+    let skip_dirs = [".git", "node_modules", "target", "dist", "build", "vendor", "enveil_secure"];
+    
+    if let Ok(entries) = fs::read_dir(dir_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            
+            if path.is_dir() {
+                let dir_name = path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
+                
+                if !dir_name.starts_with('.') && !skip_dirs.contains(&dir_name) {
+                    scan_sensitive_files(&path, files);
+                }
+            } else if path.is_file() && SensitiveFiles::is_sensitive(&path) {
+                files.push(path.to_string_lossy().to_string());
+            }
+        }
+    }
+}
+
+/// Print protect result
+fn print_protect_result(result: &ProtectResult, verbose: bool) {
+    if result.success {
+        let icon = match result.action {
+            protector::ProtectAction::Moved => "📦",
+            protector::ProtectAction::Encrypted => "🔐",
+            protector::ProtectAction::Secured => "🛡️",
+        };
+        println!("{} {} -> {}", icon, result.original_path, result.protected_path);
+        if verbose {
+            println!("   {}", result.message);
+        }
+    } else {
+        println!("❌ {}: {}", result.original_path, result.message);
     }
 }
