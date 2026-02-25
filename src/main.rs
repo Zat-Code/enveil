@@ -8,6 +8,14 @@ mod git_hooks;
 
 use git_hooks::GitHooks;
 
+mod detector;
+mod git_hooks;
+mod protector;
+
+use detector::{SecretDetector, SecretFinding};
+use git_hooks::GitHooks;
+use protector::{FileProtector, ProtectOption, ProtectResult, SensitiveFiles};
+
 #[derive(Parser)]
 #[command(name = "enveil")]
 #[command(about = "Secret detection and protection tool", long_about = None)]
