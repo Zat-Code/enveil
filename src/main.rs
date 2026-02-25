@@ -4,6 +4,10 @@ use std::fs;
 use std::path::Path;
 use serde::Serialize;
 
+mod git_hooks;
+
+use git_hooks::GitHooks;
+
 #[derive(Parser)]
 #[command(name = "enveil")]
 #[command(about = "Secret detection and protection tool", long_about = None)]
@@ -36,6 +40,18 @@ enum Commands {
     Install {
         /// Path to install hooks
         path: Option<String>,
+        
+        /// Force reinstall hooks
+        #[arg(short, long)]
+        force: bool,
+        
+        /// Uninstall hooks
+        #[arg(long)]
+        uninstall: bool,
+        
+        /// Check hook status
+        #[arg(long)]
+        status: bool,
     },
 }
 
@@ -234,9 +250,33 @@ fn main() {
             println!("Enveil protect");
             println!("Path: {:?}", path);
         }
-        Commands::Install { path } => {
-            println!("Enveil install");
-            println!("Path: {:?}", path);
+        Commands::Install { path, force, uninstall, status } => {
+            let install_path = path.as_deref().unwrap_or(".");
+            let hooks = GitHooks::new(install_path);
+            
+            if *uninstall {
+                match hooks.uninstall() {
+                    Ok(_) => {},
+                    Err(e) => {
+                        eprintln!("❌ Error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            } else if *status {
+                if hooks.is_installed() {
+                    println!("✅ Git hooks are installed");
+                } else {
+                    println!("ℹ️  Git hooks are not installed");
+                }
+            } else {
+                match hooks.install(*force) {
+                    Ok(_) => {},
+                    Err(e) => {
+                        eprintln!("❌ Error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
         }
     }
 }
