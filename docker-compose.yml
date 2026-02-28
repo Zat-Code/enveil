@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  builder:
+    image: rust:1.75-bookworm
+    container_name:-enveil-builder
+    working_dir: /app
+    volumes:
+      - ./code:/app
+      - cargo-cache:/usr/local/cargo/registry
+    networks:
+      - openclaw-network
+    environment:
+      - RUST_BACKTRACE=1
+    command: ["tail", "-f", "/dev/null"]
+
+networks:
+  openclaw-network:
+    name: openclaw-network
+    external: true
+
+volumes:
+  cargo-cache:
