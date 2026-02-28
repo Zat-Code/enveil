@@ -1,0 +1,19 @@
+{
+  "projectName": "enveil",
+  "repo": "Zat-Code/enveil",
+  "type": "cli",
+  "phase": "loop",
+  "currentAgent": "completed",
+  "nextAgent": "none",
+  "repoCreated": true,
+  "issuesCreated": 7,
+  "loopCount": 15,
+  "lastUpdate": "2026-02-25T10:30:00Z",
+  "issueCompleted": 8,
+  "issuesRemaining": 0,
+  "currentIssue": "NONE",
+  "status": "PR #15 merged - Issue #10 completed",
+  "branch": "feature/docker-setup",
+  "localPath": "/home/node/projects/enveil",
+  "prNumber": 15
+}
