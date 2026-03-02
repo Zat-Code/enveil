@@ -1,9 +1,4 @@
 use clap::{Parser, Subcommand};
-use std::collections::HashSet;
-use std::fs;
-use std::path::Path;
-use serde::Serialize;
-
 mod git_hooks;
 
 use git_hooks::GitHooks;
@@ -16,9 +11,12 @@ use detector::{SecretDetector, SecretFinding};
 use git_hooks::GitHooks;
 use protector::{FileProtector, ProtectOption, ProtectResult, SensitiveFiles};
 
+const VERSION: &str = "0.1.0";
+
 #[derive(Parser)]
 #[command(name = "enveil")]
 #[command(about = "Secret detection and protection tool", long_about = None)]
+#[command(version = VERSION)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -63,6 +61,7 @@ enum Commands {
     },
 }
 
+<<<<<<< HEAD
 #[derive(Serialize)]
 struct ScanResult {
     path: String,
@@ -239,6 +238,7 @@ fn main() {
 
     match &cli.command {
         Commands::Scan { path, verbose, format } => {
+<<<<<<< HEAD
             let scan_path = path.as_deref().unwrap_or(".");
             
             match scan_directory(Path::new(scan_path), *verbose) {
